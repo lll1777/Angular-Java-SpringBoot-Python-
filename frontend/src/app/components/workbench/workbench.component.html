@@ -1,0 +1,222 @@
+<div class="workbench-container">
+  <div class="card">
+    <div class="card-header">
+      <h2>部门承办人工作台</h2>
+      <div class="header-actions">
+        <select [(ngModel)]="statusFilter" (change)="loadTickets()">
+          <option *ngFor="let opt of statusOptions" [value]="opt.value">{{ opt.label }}</option>
+        </select>
+        <button class="btn btn-primary btn-sm" (click)="loadTickets()">刷新</button>
+      </div>
+    </div>
+
+    <div class="workbench-layout">
+      <div class="ticket-list">
+        <div *ngIf="loading" class="loading">
+          <p>加载中...</p>
+        </div>
+
+        <div *ngIf="error" class="error">
+          {{ error }}
+        </div>
+
+        <div *ngIf="!loading && tickets.length === 0" class="loading">
+          <p>暂无工单</p>
+        </div>
+
+        <div class="ticket-item" 
+             *ngFor="let ticket of tickets"
+             [class.selected]="selectedTicket?.id === ticket.id"
+             (click)="selectTicket(ticket)">
+          <div class="ticket-header">
+            <span class="ticket-number">{{ ticket.ticketNumber }}</span>
+            <span class="badge {{ getAlertClass(ticket.alertLevel) }}">
+              {{ getAlertText(ticket.alertLevel) }}
+            </span>
+          </div>
+          <div class="ticket-title">{{ ticket.title }}</div>
+          <div class="ticket-footer">
+            <span class="badge {{ getStatusBadgeClass(ticket.status) }}">
+              {{ getStatusText(ticket.status) }}
+            </span>
+            <span class="ticket-time">{{ ticket.createdAt | date:'MM-dd HH:mm' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ticket-detail" *ngIf="selectedTicket">
+        <div class="detail-header">
+          <h3>{{ selectedTicket.title }}</h3>
+          <div class="detail-actions">
+            <button *ngFor="let action of getAvailableActions()" 
+                    class="btn btn-sm"
+                    [ngClass]="{
+                      'btn-success': action === 'accept',
+                      'btn-primary': action === 'process',
+                      'btn-warning': action === 'transfer',
+                      'btn-secondary': action === 'complete',
+                      'btn-danger': action === 'close'
+                    }"
+                    (click)="openActionPanel(action)">
+              {{ getActionLabel(action) }}
+            </button>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h4 class="section-title">基本信息</h4>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="label">工单编号：</span>
+              <span class="value">{{ selectedTicket.ticketNumber }}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">当前状态：</span>
+              <span class="value">
+                <span class="badge {{ getStatusBadgeClass(selectedTicket.status) }}">
+                  {{ getStatusText(selectedTicket.status) }}
+                </span>
+              </span>
+            </div>
+            <div class="info-item">
+              <span class="label">预警级别：</span>
+              <span class="value">
+                <span class="badge {{ getAlertClass(selectedTicket.alertLevel) }}">
+                  {{ getAlertText(selectedTicket.alertLevel) }}
+                </span>
+              </span>
+            </div>
+            <div class="info-item">
+              <span class="label">剩余时间：</span>
+              <span class="value">{{ selectedTicket.remainingHours || '--' }} 小时</span>
+            </div>
+            <div class="info-item">
+              <span class="label">诉求分类：</span>
+              <span class="value">{{ selectedTicket.category || '未分类' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">提交时间：</span>
+              <span class="value">{{ selectedTicket.createdAt | date:'yyyy-MM-dd HH:mm' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h4 class="section-title">诉求内容</h4>
+          <div class="content-box">{{ selectedTicket.content }}</div>
+        </div>
+
+        <div *ngIf="selectedTicket.aiRecommendation" class="detail-section">
+          <h4 class="section-title">AI推荐</h4>
+          <div class="ai-recommendation">
+            <p><strong>推荐部门：</strong>{{ selectedTicket.aiRecommendation }}</p>
+            <p><strong>置信度：</strong>{{ (selectedTicket.aiConfidence * 100).toFixed(0) }}%</p>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h4 class="section-title">流转记录</h4>
+          <div class="timeline">
+            <div *ngFor="let flow of ticketFlows" class="timeline-item">
+              <div class="time">{{ flow.createdAt | date:'yyyy-MM-dd HH:mm' }}</div>
+              <div class="content">
+                <strong>{{ flow.operatorName }}</strong> - {{ flow.flowType || '状态流转' }}
+                <p>{{ getStatusText(flow.fromStatus) }} → {{ getStatusText(flow.toStatus) }}</p>
+                <p *ngIf="flow.remark">{{ flow.remark }}</p>
+              </div>
+            </div>
+            <div *ngIf="ticketFlows.length === 0" class="loading">
+              暂无流转记录
+            </div>
+          </div>
+        </div>
+
+        <div *ngIf="similarTickets.length > 0" class="detail-section">
+          <h4 class="section-title">相似诉求</h4>
+          <div class="similar-list">
+            <div *ngFor="let similar of similarTickets" class="similar-item">
+              <div class="similar-header">
+                <span>{{ similar.ticketNumber }}</span>
+                <span class="similarity">相似度：{{ (similar.similarity * 100).toFixed(0) }}%</span>
+              </div>
+              <div class="similar-title">{{ similar.title }}</div>
+              <div class="similar-footer">
+                <span class="badge">{{ similar.status }}</span>
+                <span>{{ similar.departmentName }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div *ngIf="recommendedKnowledge.length > 0" class="detail-section">
+          <h4 class="section-title">政策知识库推荐</h4>
+          <div class="knowledge-list">
+            <div *ngFor="let item of recommendedKnowledge" class="knowledge-item">
+              <div class="knowledge-title">{{ item.title }}</div>
+              <div class="knowledge-category">
+                <span class="badge badge-info">{{ item.category }}</span>
+                <span class="relevance">相关度：{{ (item.relevanceScore * 100).toFixed(0) }}%</span>
+              </div>
+              <div class="knowledge-summary">{{ item.summary }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="!selectedTicket" class="ticket-detail no-selection">
+        <p>请选择一个工单查看详情</p>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="showingActionPanel" class="action-panel-overlay" (click)="closeActionPanel()">
+    <div class="action-panel" (click)="$event.stopPropagation()">
+      <div class="panel-header">
+        <h3>{{ getActionLabel(currentAction) }}</h3>
+        <button class="close-btn" (click)="closeActionPanel()">&times;</button>
+      </div>
+      <div class="panel-body">
+        <form [formGroup]="actionForm">
+          <div *ngIf="currentAction === 'process' || currentAction === 'complete'" class="form-group">
+            <label>办理内容</label>
+            <textarea formControlName="content" rows="4" placeholder="请输入办理内容..."></textarea>
+          </div>
+
+          <div *ngIf="currentAction === 'transfer'" class="form-group">
+            <label>目标部门 <span class="required">*</span></label>
+            <select formControlName="targetDepartmentId">
+              <option [ngValue]="null">请选择部门</option>
+              <option *ngFor="let dept of departments" [ngValue]="dept.id">{{ dept.name }}</option>
+            </select>
+          </div>
+
+          <div *ngIf="currentAction === 'transfer'" class="form-group">
+            <label>转办原因</label>
+            <textarea formControlName="reason" rows="3" placeholder="请输入转办原因..."></textarea>
+          </div>
+
+          <div *ngIf="currentAction === 'close'" class="form-group">
+            <label>满意度评分</label>
+            <div class="rating">
+              <span *ngFor="let star of [1,2,3,4,5]" 
+                    class="star"
+                    [class.active]="actionForm.get('satisfaction')?.value >= star"
+                    (click)="actionForm.get('satisfaction')?.setValue(star)">
+                ★
+              </span>
+            </div>
+          </div>
+
+          <div *ngIf="currentAction === 'close'" class="form-group">
+            <label>评价内容</label>
+            <textarea formControlName="comment" rows="3" placeholder="请输入评价内容..."></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="panel-footer">
+        <button class="btn btn-secondary" (click)="closeActionPanel()">取消</button>
+        <button class="btn btn-primary" (click)="executeAction()">确认</button>
+      </div>
+    </div>
+  </div>
+</div>

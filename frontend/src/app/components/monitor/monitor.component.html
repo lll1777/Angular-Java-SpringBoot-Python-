@@ -1,0 +1,154 @@
+<div class="monitor-container">
+  <div *ngIf="loading" class="loading">
+    <p>正在加载效能数据...</p>
+  </div>
+
+  <div *ngIf="error" class="error">
+    {{ error }}
+  </div>
+
+  <div *ngIf="!loading">
+    <div class="card">
+      <div class="card-header">
+        <h2>效能监察驾驶舱</h2>
+        <div class="header-actions">
+          <button class="btn btn-secondary btn-sm" (click)="calculateToday()">计算今日数据</button>
+          <button class="btn btn-primary btn-sm" (click)="exportData()">导出报表</button>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card primary">
+          <div class="stat-value">{{ overallStats.totalDepartments }}</div>
+          <div class="stat-label">参评部门数</div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-value">{{ overallStats.avgEfficiency | number:'1.2-2' }}</div>
+          <div class="stat-label">平均效能分数</div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-value">{{ overallStats.avgOnTimeRate | number:'1.2-2' }}%</div>
+          <div class="stat-label">平均办结率</div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-value">{{ overallStats.avgSatisfaction | number:'1.2-2' }}%</div>
+          <div class="stat-label">平均满意度</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>部门效能排名</h2>
+      </div>
+
+      <div *ngIf="efficiencyRanking.length > 0">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 80px;">排名</th>
+              <th>部门名称</th>
+              <th style="width: 120px;">效能分数</th>
+              <th style="width: 100px;">评价等级</th>
+              <th style="width: 100px;">办结率</th>
+              <th style="width: 100px;">满意度</th>
+              <th style="width: 80px;">接收</th>
+              <th style="width: 80px;">办结</th>
+              <th style="width: 80px;">逾期</th>
+              <th style="width: 80px;">红牌</th>
+              <th style="width: 80px;">黄牌</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let item of efficiencyRanking; let i = index">
+              <td>
+                <span class="badge {{ getRankBadgeClass(item.rank) }}" style="font-size: 0.9rem;">
+                  {{ item.rank }}
+                </span>
+              </td>
+              <td>
+                <strong>{{ item.department?.name }}</strong>
+              </td>
+              <td>
+                <span [style.color]="item.efficiencyScore && item.efficiencyScore >= 80 ? '#27ae60' : item.efficiencyScore && item.efficiencyScore >= 60 ? '#3498db' : '#e74c3c'">
+                  <strong>{{ item.efficiencyScore | number:'1.2-2' }}</strong>
+                </span>
+              </td>
+              <td>
+                <span class="badge {{ getEfficiencyLevelClass(item.efficiencyScore) }}">
+                  {{ getEfficiencyLevelText(item.efficiencyScore) }}
+                </span>
+              </td>
+              <td>{{ item.onTimeCompletionRate | number:'1.2-2' }}%</td>
+              <td>{{ item.satisfactionRate | number:'1.2-2' }}%</td>
+              <td>{{ item.totalReceived }}</td>
+              <td>{{ item.totalCompleted }}</td>
+              <td>
+                <span *ngIf="item.totalOverdue > 0" class="badge badge-danger">
+                  {{ item.totalOverdue }}
+                </span>
+                <span *ngIf="item.totalOverdue === 0">{{ item.totalOverdue }}</span>
+              </td>
+              <td>
+                <span *ngIf="item.totalRedWarning > 0" class="badge badge-danger">
+                  {{ item.totalRedWarning }}
+                </span>
+                <span *ngIf="item.totalRedWarning === 0">{{ item.totalRedWarning }}</span>
+              </td>
+              <td>
+                <span *ngIf="item.totalYellowWarning > 0" class="badge badge-warning">
+                  {{ item.totalYellowWarning }}
+                </span>
+                <span *ngIf="item.totalYellowWarning === 0">{{ item.totalYellowWarning }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div *ngIf="efficiencyRanking.length === 0" class="loading">
+        <p>暂无效能数据</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>效能指标说明</h2>
+      </div>
+      <div class="legend-grid">
+        <div class="legend-item">
+          <span class="legend-badge badge-danger">1-3</span>
+          <span>排名前三的部门</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-badge badge-success">优秀</span>
+          <span>效能分数 ≥ 80分</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-badge badge-info">良好</span>
+          <span>效能分数 60-80分</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-badge badge-warning">一般</span>
+          <span>效能分数 40-60分</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-badge badge-danger">较差</span>
+          <span>效能分数 < 40分</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-badge alert-red">红牌</span>
+          <span>处理时限超过90%</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-badge alert-yellow">黄牌</span>
+          <span>处理时限超过75%</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-badge alert-overdue">逾期</span>
+          <span>已超过处理时限</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

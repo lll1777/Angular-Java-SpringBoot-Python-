@@ -1,0 +1,21 @@
+<div class="app-container">
+  <header class="app-header">
+    <div class="header-content">
+      <h1>智能政务便民服务平台</h1>
+      <nav class="nav-menu">
+        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">首页</a>
+        <a routerLink="/citizen" routerLinkActive="active">市民诉求</a>
+        <a routerLink="/workbench" routerLinkActive="active">部门工作台</a>
+        <a routerLink="/monitor" routerLinkActive="active">效能监察</a>
+      </nav>
+    </div>
+  </header>
+  
+  <main class="app-main">
+    <router-outlet></router-outlet>
+  </main>
+  
+  <footer class="app-footer">
+    <p>智能政务便民服务平台 v1.0.0 | 数据留痕可审计</p>
+  </footer>
+</div>

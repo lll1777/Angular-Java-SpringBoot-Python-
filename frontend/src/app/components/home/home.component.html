@@ -1,0 +1,132 @@
+<div class="home-container">
+  <div *ngIf="loading" class="loading">
+    <p>正在加载数据...</p>
+  </div>
+
+  <div *ngIf="error" class="error">
+    {{ error }}
+  </div>
+
+  <div *ngIf="!loading">
+    <div class="stats-grid">
+      <div class="stat-card primary">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">工单总数</div>
+      </div>
+      <div class="stat-card success">
+        <div class="stat-value">{{ stats.completed }}</div>
+        <div class="stat-label">已办结</div>
+      </div>
+      <div class="stat-card warning">
+        <div class="stat-value">{{ stats.processing }}</div>
+        <div class="stat-label">办理中</div>
+      </div>
+      <div class="stat-card danger">
+        <div class="stat-value">{{ stats.overdue }}</div>
+        <div class="stat-label">已逾期</div>
+      </div>
+    </div>
+
+    <div class="content-grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>最新工单</h2>
+        </div>
+        <div *ngIf="recentTickets.length > 0">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>工单编号</th>
+                <th>标题</th>
+                <th>状态</th>
+                <th>预警</th>
+                <th>创建时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let ticket of recentTickets">
+                <td>{{ ticket.ticketNumber }}</td>
+                <td>{{ ticket.title }}</td>
+                <td>
+                  <span class="badge {{ getStatusBadgeClass(ticket.status) }}">
+                    {{ getStatusText(ticket.status) }}
+                  </span>
+                </td>
+                <td>
+                  <span *ngIf="ticket.alertLevel !== 'NORMAL'" class="badge {{ getAlertClass(ticket.alertLevel) }}">
+                    {{ getAlertText(ticket.alertLevel) }}
+                  </span>
+                  <span *ngIf="ticket.alertLevel === 'NORMAL'">正常</span>
+                </td>
+                <td>{{ ticket.createdAt | date:'yyyy-MM-dd HH:mm' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div *ngIf="recentTickets.length === 0">
+          <p class="loading">暂无工单数据</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>部门效能排名</h2>
+        </div>
+        <div *ngIf="efficiencyRanking.length > 0">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>排名</th>
+                <th>部门名称</th>
+                <th>效能分数</th>
+                <th>办结率</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let item of efficiencyRanking; let i = index">
+                <td>
+                  <span class="badge" [ngClass]="{
+                    'badge-danger': i === 0,
+                    'badge-warning': i === 1,
+                    'badge-info': i === 2,
+                    'badge-secondary': i > 2
+                  }">
+                    {{ item.rank }}
+                  </span>
+                </td>
+                <td>{{ item.department?.name }}</td>
+                <td>
+                  <strong>{{ item.efficiencyScore | number:'1.2-2' }}</strong>
+                </td>
+                <td>{{ item.onTimeCompletionRate | number:'1.2-2' }}%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div *ngIf="efficiencyRanking.length === 0">
+          <p class="loading">暂无效能数据</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>快捷入口</h2>
+      </div>
+      <div class="quick-actions">
+        <a routerLink="/citizen" class="action-card">
+          <div class="action-icon">📝</div>
+          <div class="action-text">提交诉求</div>
+        </a>
+        <a routerLink="/workbench" class="action-card">
+          <div class="action-icon">💼</div>
+          <div class="action-text">部门工作台</div>
+        </a>
+        <a routerLink="/monitor" class="action-card">
+          <div class="action-icon">📊</div>
+          <div class="action-text">效能监察</div>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>

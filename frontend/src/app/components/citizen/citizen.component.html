@@ -1,0 +1,147 @@
+<div class="citizen-container">
+  <div class="card">
+    <div class="card-header">
+      <h2>提交诉求</h2>
+      <p>请填写以下信息提交您的诉求，我们将尽快处理。</p>
+    </div>
+
+    <div *ngIf="success && createdTicket" class="success-message">
+      <h3>提交成功！</h3>
+      <p>您的诉求已成功提交，工单编号：<strong>{{ createdTicket.ticketNumber }}</strong></p>
+      <p>请妥善保存工单编号，以便后续查询办理进度。</p>
+      <div *ngIf="createdTicket.aiRecommendation">
+        <p><strong>AI推荐承办部门：</strong>{{ createdTicket.aiRecommendation }}
+          <span class="badge badge-info">置信度：{{ (createdTicket.aiConfidence * 100).toFixed(0) }}%</span>
+        </p>
+      </div>
+      <div class="action-buttons" style="margin-top: 15px;">
+        <button class="btn btn-primary" (click)="resetForm()">继续提交</button>
+        <a routerLink="/" class="btn btn-secondary">返回首页</a>
+      </div>
+    </div>
+
+    <form *ngIf="!success" [formGroup]="ticketForm" (ngSubmit)="onSubmit()">
+      <div class="form-group">
+        <label for="title">诉求标题 <span class="required">*</span></label>
+        <input
+          type="text"
+          id="title"
+          formControlName="title"
+          placeholder="请简要描述您的诉求"
+          [class.invalid]="ticketForm.get('title')?.invalid && ticketForm.get('title')?.touched"
+        />
+        <div *ngIf="ticketForm.get('title')?.invalid && ticketForm.get('title')?.touched" class="error-message">
+          <span *ngIf="ticketForm.get('title')?.errors?.['required']">请填写诉求标题</span>
+          <span *ngIf="ticketForm.get('title')?.errors?.['minlength']">标题至少5个字符</span>
+          <span *ngIf="ticketForm.get('title')?.errors?.['maxlength']">标题不能超过200个字符</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="content">诉求内容 <span class="required">*</span></label>
+        <textarea
+          id="content"
+          formControlName="content"
+          placeholder="请详细描述您的诉求，包括时间、地点、具体情况等"
+          rows="6"
+          [class.invalid]="ticketForm.get('content')?.invalid && ticketForm.get('content')?.touched"
+        ></textarea>
+        <div *ngIf="ticketForm.get('content')?.invalid && ticketForm.get('content')?.touched" class="error-message">
+          <span *ngIf="ticketForm.get('content')?.errors?.['required']">请填写诉求内容</span>
+          <span *ngIf="ticketForm.get('content')?.errors?.['minlength']">内容至少20个字符</span>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="category">诉求分类</label>
+          <select id="category" formControlName="category">
+            <option value="">请选择分类（AI将自动推荐）</option>
+            <option *ngFor="let cat of categories" [value]="cat.value">{{ cat.label }}</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="priorityLevel">优先级</label>
+          <select id="priorityLevel" formControlName="priorityLevel">
+            <option *ngFor="let level of priorityLevels" [value]="level.value">{{ level.label }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>
+          <input type="checkbox" formControlName="isAnonymous" />
+          匿名提交
+        </label>
+        <p class="hint">选择匿名提交将不显示您的姓名和联系方式</p>
+      </div>
+
+      <div *ngIf="!ticketForm.get('isAnonymous')?.value" class="contact-info">
+        <h3 class="section-title">联系方式</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="citizenName">姓名 <span class="required">*</span></label>
+            <input
+              type="text"
+              id="citizenName"
+              formControlName="citizenName"
+              placeholder="请输入您的姓名"
+              [class.invalid]="ticketForm.get('citizenName')?.invalid && ticketForm.get('citizenName')?.touched"
+            />
+            <div *ngIf="ticketForm.get('citizenName')?.invalid && ticketForm.get('citizenName')?.touched" class="error-message">
+              <span *ngIf="ticketForm.get('citizenName')?.errors?.['required']">请填写姓名</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="citizenPhone">联系电话 <span class="required">*</span></label>
+            <input
+              type="tel"
+              id="citizenPhone"
+              formControlName="citizenPhone"
+              placeholder="请输入您的手机号码"
+              [class.invalid]="ticketForm.get('citizenPhone')?.invalid && ticketForm.get('citizenPhone')?.touched"
+            />
+            <div *ngIf="ticketForm.get('citizenPhone')?.invalid && ticketForm.get('citizenPhone')?.touched" class="error-message">
+              <span *ngIf="ticketForm.get('citizenPhone')?.errors?.['required']">请填写联系电话</span>
+              <span *ngIf="ticketForm.get('citizenPhone')?.errors?.['pattern']">请输入正确的手机号码</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="address">详细地址</label>
+          <input
+            type="text"
+            id="address"
+            formControlName="address"
+            placeholder="请输入详细地址（可选）"
+          />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>
+          <input type="checkbox" formControlName="isUrgent" />
+          紧急诉求
+        </label>
+        <p class="hint">勾选后将优先处理</p>
+      </div>
+
+      <div *ngIf="error" class="error" style="margin-top: 15px;">
+        {{ error }}
+      </div>
+
+      <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="btn btn-primary btn-lg" [disabled]="submitting || ticketForm.invalid">
+          <span *ngIf="submitting">提交中...</span>
+          <span *ngIf="!submitting">提交诉求</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-lg" (click)="resetForm()" style="margin-left: 10px;">
+          重置
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
