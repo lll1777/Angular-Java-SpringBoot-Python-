@@ -38,6 +38,8 @@ public class WorkCalendarService {
     private static final LocalTime DEFAULT_WORK_END = LocalTime.of(18, 0);
     private static final LocalTime DEFAULT_LUNCH_START = LocalTime.of(12, 0);
     private static final LocalTime DEFAULT_LUNCH_END = LocalTime.of(13, 30);
+    
+    private static final int DEFAULT_WORK_HOURS_PER_DAY = 8;
 
     @PostConstruct
     public void init() {
@@ -56,12 +58,13 @@ public class WorkCalendarService {
         LocalDate startDate = LocalDate.of(year, 1, 1);
         LocalDate endDate = LocalDate.of(year, 12, 31);
         
-        long existingCount = workCalendarRepository.count();
+        long existingCount = workCalendarRepository.countByDateBetween(startDate, endDate);
         if (existingCount > 0) {
+            log.debug("{} 年工作日历已存在，跳过初始化", year);
             return;
         }
 
-        log.info("初始化 {} 年工作日历", year);
+        log.info("初始化 {} 年政务标准工作日历", year);
         
         List<WorkCalendar> calendars = new ArrayList<>();
         LocalDate date = startDate;
@@ -72,10 +75,10 @@ public class WorkCalendarService {
             date = date.plusDays(1);
         }
         
-        applyFixedHolidays(year, calendars);
+        applyGovernmentHolidays(year, calendars);
         
         workCalendarRepository.saveAll(calendars);
-        log.info("成功初始化 {} 天工作日历记录", calendars.size());
+        log.info("成功初始化 {} 年政务工作日历记录，共 {} 天", year, calendars.size());
     }
 
     private WorkCalendar createDefaultCalendar(LocalDate date) {
@@ -90,70 +93,111 @@ public class WorkCalendarService {
         
         calendar.setIsWorkDay(isWorkDay);
         calendar.setHolidayType(isWorkDay ? null : HolidayType.WEEKEND);
+        calendar.setHolidayName(isWorkDay ? null : (dayOfWeek == DayOfWeek.SATURDAY ? "周六" : "周日"));
         calendar.setWorkStartTime(DEFAULT_WORK_START);
         calendar.setWorkEndTime(DEFAULT_WORK_END);
         calendar.setLunchStartTime(DEFAULT_LUNCH_START);
         calendar.setLunchEndTime(DEFAULT_LUNCH_END);
+        calendar.setWorkHoursPerDay(DEFAULT_WORK_HOURS_PER_DAY);
         
         return calendar;
     }
 
-    private void applyFixedHolidays(int year, List<WorkCalendar> calendars) {
-        Map<String, HolidayType> fixedHolidays = new HashMap<>();
-        
-        fixedHolidays.put(year + "-01-01", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-01-28", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-01-29", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-01-30", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-01-31", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-02-01", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-02-02", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-04-04", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-05-01", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-05-02", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-05-03", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-05-04", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-05-05", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-06-22", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-06-23", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-06-24", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-10-01", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-10-02", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-10-03", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-10-04", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-10-05", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-10-06", HolidayType.NATIONAL_HOLIDAY);
-        fixedHolidays.put(year + "-10-07", HolidayType.NATIONAL_HOLIDAY);
-        
-        Map<String, HolidayType> workingWeekends = new HashMap<>();
-        workingWeekends.put(year + "-02-04", HolidayType.WORKING_WEEKEND);
-        workingWeekends.put(year + "-02-18", HolidayType.WORKING_WEEKEND);
-        workingWeekends.put(year + "-04-07", HolidayType.WORKING_WEEKEND);
-        workingWeekends.put(year + "-04-28", HolidayType.WORKING_WEEKEND);
-        workingWeekends.put(year + "-05-11", HolidayType.WORKING_WEEKEND);
-        workingWeekends.put(year + "-06-16", HolidayType.WORKING_WEEKEND);
-        workingWeekends.put(year + "-09-29", HolidayType.WORKING_WEEKEND);
-        workingWeekends.put(year + "-10-12", HolidayType.WORKING_WEEKEND);
+    private void applyGovernmentHolidays(int year, List<WorkCalendar> calendars) {
+        Map<String, HolidayInfo> holidays = getGovernmentHolidays(year);
+        Map<String, HolidayInfo> workingWeekends = getWorkingWeekends(year);
         
         for (WorkCalendar calendar : calendars) {
             String dateStr = calendar.getDate().toString();
             
-            if (fixedHolidays.containsKey(dateStr)) {
+            if (holidays.containsKey(dateStr)) {
+                HolidayInfo info = holidays.get(dateStr);
                 calendar.setIsWorkDay(false);
-                calendar.setHolidayType(fixedHolidays.get(dateStr));
-                calendar.setHolidayName(getHolidayName(fixedHolidays.get(dateStr)));
+                calendar.setHolidayType(info.type);
+                calendar.setHolidayName(info.name);
+                calendar.setRemark(info.remark);
             }
             
             if (workingWeekends.containsKey(dateStr)) {
+                HolidayInfo info = workingWeekends.get(dateStr);
                 calendar.setIsWorkDay(true);
-                calendar.setHolidayType(workingWeekends.get(dateStr));
-                calendar.setHolidayName("调休上班");
+                calendar.setHolidayType(info.type);
+                calendar.setHolidayName(info.name);
+                calendar.setRemark(info.remark);
             }
         }
     }
 
-    private String getHolidayName(HolidayType type) {
-        return type.getDescription();
+    private Map<String, HolidayInfo> getGovernmentHolidays(int year) {
+        Map<String, HolidayInfo> holidays = new HashMap<>();
+        
+        holidays.put(year + "-01-01", new HolidayInfo(HolidayType.NATIONAL_HOLIDAY, "元旦", "新年第一天"));
+        
+        int springFestivalStart = getSpringFestivalStart(year);
+        for (int i = 0; i < 7; i++) {
+            LocalDate date = LocalDate.of(year, 2, springFestivalStart).plusDays(i);
+            holidays.put(date.toString(), new HolidayInfo(HolidayType.NATIONAL_HOLIDAY, "春节", "农历新年"));
+        }
+        
+        int qingmingDate = getQingmingDate(year);
+        holidays.put(year + "-04-" + String.format("%02d", qingmingDate), 
+            new HolidayInfo(HolidayType.NATIONAL_HOLIDAY, "清明节", "传统祭扫节日"));
+        
+        for (int i = 1; i <= 5; i++) {
+            holidays.put(year + "-05-" + String.format("%02d", i), 
+                new HolidayInfo(HolidayType.NATIONAL_HOLIDAY, "劳动节", "国际劳动节"));
+        }
+        
+        int dragonBoatStart = getDragonBoatStart(year);
+        for (int i = 0; i < 3; i++) {
+            LocalDate date = LocalDate.of(year, 6, dragonBoatStart).plusDays(i);
+            holidays.put(date.toString(), new HolidayInfo(HolidayType.NATIONAL_HOLIDAY, "端午节", "传统节日"));
+        }
+        
+        for (int i = 1; i <= 7; i++) {
+            holidays.put(year + "-10-" + String.format("%02d", i), 
+                new HolidayInfo(HolidayType.NATIONAL_HOLIDAY, "国庆节", "建国纪念日"));
+        }
+        
+        return holidays;
+    }
+
+    private Map<String, HolidayInfo> getWorkingWeekends(int year) {
+        Map<String, HolidayInfo> workingWeekends = new HashMap<>();
+        
+        workingWeekends.put(year + "-02-04", new HolidayInfo(HolidayType.WORKING_WEEKEND, "调休上班", "春节假期调休"));
+        workingWeekends.put(year + "-02-18", new HolidayInfo(HolidayType.WORKING_WEEKEND, "调休上班", "春节假期调休"));
+        workingWeekends.put(year + "-04-07", new HolidayInfo(HolidayType.WORKING_WEEKEND, "调休上班", "清明节调休"));
+        workingWeekends.put(year + "-04-28", new HolidayInfo(HolidayType.WORKING_WEEKEND, "调休上班", "劳动节调休"));
+        workingWeekends.put(year + "-05-11", new HolidayInfo(HolidayType.WORKING_WEEKEND, "调休上班", "劳动节调休"));
+        workingWeekends.put(year + "-09-29", new HolidayInfo(HolidayType.WORKING_WEEKEND, "调休上班", "国庆节调休"));
+        workingWeekends.put(year + "-10-12", new HolidayInfo(HolidayType.WORKING_WEEKEND, "调休上班", "国庆节调休"));
+        
+        return workingWeekends;
+    }
+
+    private int getSpringFestivalStart(int year) {
+        return 10;
+    }
+
+    private int getQingmingDate(int year) {
+        return 4;
+    }
+
+    private int getDragonBoatStart(int year) {
+        return 22;
+    }
+
+    private static class HolidayInfo {
+        HolidayType type;
+        String name;
+        String remark;
+        
+        HolidayInfo(HolidayType type, String name, String remark) {
+            this.type = type;
+            this.name = name;
+            this.remark = remark;
+        }
     }
 
     public boolean isWorkDay(LocalDate date) {
@@ -176,14 +220,18 @@ public class WorkCalendarService {
     }
 
     public LocalDateTime addWorkHours(LocalDateTime startDateTime, long hoursToAdd) {
-        if (hoursToAdd <= 0) {
+        return addWorkHoursWithMinutes(startDateTime, hoursToAdd * 60);
+    }
+
+    public LocalDateTime addWorkHoursWithMinutes(LocalDateTime startDateTime, long minutesToAdd) {
+        if (minutesToAdd <= 0) {
             return startDateTime;
         }
 
         LocalDateTime current = startDateTime;
-        long remainingHours = hoursToAdd;
+        long remainingMinutes = minutesToAdd;
 
-        while (remainingHours > 0) {
+        while (remainingMinutes > 0) {
             WorkCalendar calendar = getWorkCalendar(current.toLocalDate());
             
             if (!calendar.getIsWorkDay()) {
@@ -208,13 +256,13 @@ public class WorkCalendarService {
                 continue;
             }
 
-            double availableHoursToday = calculateAvailableHours(currentTime, workStart, workEnd, lunchStart, lunchEnd);
+            long availableMinutesToday = calculateAvailableMinutes(currentTime, workStart, workEnd, lunchStart, lunchEnd);
             
-            if (remainingHours <= availableHoursToday) {
-                current = addHoursWithinWorkDay(current, remainingHours, workStart, workEnd, lunchStart, lunchEnd);
-                remainingHours = 0;
+            if (remainingMinutes <= availableMinutesToday) {
+                current = addMinutesWithinWorkDay(current, remainingMinutes, workStart, workEnd, lunchStart, lunchEnd);
+                remainingMinutes = 0;
             } else {
-                remainingHours -= (long) availableHoursToday;
+                remainingMinutes -= availableMinutesToday;
                 current = current.toLocalDate().plusDays(1).atTime(workStart);
             }
         }
@@ -222,54 +270,158 @@ public class WorkCalendarService {
         return current;
     }
 
-    private double calculateAvailableHours(LocalTime currentTime, LocalTime workStart, LocalTime workEnd,
-                                           LocalTime lunchStart, LocalTime lunchEnd) {
-        double totalHours = 0;
-        
-        if (currentTime.isBefore(lunchStart)) {
-            double morningHours = java.time.Duration.between(currentTime, lunchStart).toMinutes() / 60.0;
-            totalHours += morningHours;
-            double afternoonHours = java.time.Duration.between(lunchEnd, workEnd).toMinutes() / 60.0;
-            totalHours += afternoonHours;
-        } else if (currentTime.isBefore(lunchEnd)) {
-            double afternoonHours = java.time.Duration.between(lunchEnd, workEnd).toMinutes() / 60.0;
-            totalHours += afternoonHours;
-        } else {
-            double afternoonHours = java.time.Duration.between(currentTime, workEnd).toMinutes() / 60.0;
-            totalHours += Math.max(0, afternoonHours);
-        }
-        
-        return totalHours;
+    public LocalDateTime subtractWorkHours(LocalDateTime startDateTime, long hoursToSubtract) {
+        return subtractWorkHoursWithMinutes(startDateTime, hoursToSubtract * 60);
     }
 
-    private LocalDateTime addHoursWithinWorkDay(LocalDateTime current, double hoursToAdd,
+    public LocalDateTime subtractWorkHoursWithMinutes(LocalDateTime startDateTime, long minutesToSubtract) {
+        if (minutesToSubtract <= 0) {
+            return startDateTime;
+        }
+
+        LocalDateTime current = startDateTime;
+        long remainingMinutes = minutesToSubtract;
+
+        while (remainingMinutes > 0) {
+            WorkCalendar calendar = getWorkCalendar(current.toLocalDate());
+            
+            if (!calendar.getIsWorkDay()) {
+                current = current.toLocalDate().minusDays(1).atTime(calendar.getWorkEndTime());
+                continue;
+            }
+
+            LocalTime workStart = calendar.getWorkStartTime();
+            LocalTime workEnd = calendar.getWorkEndTime();
+            LocalTime lunchStart = calendar.getLunchStartTime();
+            LocalTime lunchEnd = calendar.getLunchEndTime();
+
+            LocalTime currentTime = current.toLocalTime();
+            
+            if (currentTime.isAfter(workEnd)) {
+                current = current.toLocalDate().atTime(workEnd);
+                currentTime = workEnd;
+            }
+            
+            if (currentTime.isBefore(workStart)) {
+                current = current.toLocalDate().minusDays(1).atTime(workEnd);
+                continue;
+            }
+
+            long availableMinutesToday = calculateAvailableMinutesBackward(currentTime, workStart, workEnd, lunchStart, lunchEnd);
+            
+            if (remainingMinutes <= availableMinutesToday) {
+                current = subtractMinutesWithinWorkDay(current, remainingMinutes, workStart, workEnd, lunchStart, lunchEnd);
+                remainingMinutes = 0;
+            } else {
+                remainingMinutes -= availableMinutesToday;
+                current = current.toLocalDate().minusDays(1).atTime(workEnd);
+            }
+        }
+
+        return current;
+    }
+
+    private long calculateAvailableMinutes(LocalTime currentTime, LocalTime workStart, LocalTime workEnd,
+                                           LocalTime lunchStart, LocalTime lunchEnd) {
+        long totalMinutes = 0;
+        
+        if (currentTime.isBefore(lunchStart)) {
+            long morningMinutes = java.time.Duration.between(currentTime, lunchStart).toMinutes();
+            totalMinutes += morningMinutes;
+            long afternoonMinutes = java.time.Duration.between(lunchEnd, workEnd).toMinutes();
+            totalMinutes += afternoonMinutes;
+        } else if (currentTime.isBefore(lunchEnd)) {
+            long afternoonMinutes = java.time.Duration.between(lunchEnd, workEnd).toMinutes();
+            totalMinutes += afternoonMinutes;
+        } else {
+            long afternoonMinutes = java.time.Duration.between(currentTime, workEnd).toMinutes();
+            totalMinutes += Math.max(0, afternoonMinutes);
+        }
+        
+        return totalMinutes;
+    }
+
+    private long calculateAvailableMinutesBackward(LocalTime currentTime, LocalTime workStart, LocalTime workEnd,
+                                                    LocalTime lunchStart, LocalTime lunchEnd) {
+        long totalMinutes = 0;
+        
+        if (currentTime.isAfter(lunchEnd)) {
+            long afternoonMinutes = java.time.Duration.between(lunchEnd, currentTime).toMinutes();
+            totalMinutes += afternoonMinutes;
+            long morningMinutes = java.time.Duration.between(workStart, lunchStart).toMinutes();
+            totalMinutes += morningMinutes;
+        } else if (currentTime.isAfter(lunchStart)) {
+            long morningMinutes = java.time.Duration.between(workStart, lunchStart).toMinutes();
+            totalMinutes += morningMinutes;
+        } else {
+            long morningMinutes = java.time.Duration.between(workStart, currentTime).toMinutes();
+            totalMinutes += Math.max(0, morningMinutes);
+        }
+        
+        return totalMinutes;
+    }
+
+    private LocalDateTime addMinutesWithinWorkDay(LocalDateTime current, long minutesToAdd,
                                                   LocalTime workStart, LocalTime workEnd,
                                                   LocalTime lunchStart, LocalTime lunchEnd) {
         LocalTime currentTime = current.toLocalTime();
         LocalDate currentDate = current.toLocalDate();
+        long remainingMinutes = minutesToAdd;
         
-        long minutesToAdd = (long) (hoursToAdd * 60);
-        
-        while (minutesToAdd > 0) {
+        while (remainingMinutes > 0) {
             if (currentTime.isBefore(lunchStart)) {
                 long minutesToLunch = java.time.Duration.between(currentTime, lunchStart).toMinutes();
-                if (minutesToAdd <= minutesToLunch) {
-                    currentTime = currentTime.plusMinutes(minutesToAdd);
-                    minutesToAdd = 0;
+                if (remainingMinutes <= minutesToLunch) {
+                    currentTime = currentTime.plusMinutes(remainingMinutes);
+                    remainingMinutes = 0;
                 } else {
-                    minutesToAdd -= minutesToLunch;
+                    remainingMinutes -= minutesToLunch;
                     currentTime = lunchEnd;
                 }
             } else if (currentTime.isBefore(lunchEnd)) {
                 currentTime = lunchEnd;
             } else {
                 long minutesToEnd = java.time.Duration.between(currentTime, workEnd).toMinutes();
-                if (minutesToAdd <= minutesToEnd) {
-                    currentTime = currentTime.plusMinutes(minutesToAdd);
-                    minutesToAdd = 0;
+                if (remainingMinutes <= minutesToEnd) {
+                    currentTime = currentTime.plusMinutes(remainingMinutes);
+                    remainingMinutes = 0;
                 } else {
-                    minutesToAdd -= minutesToEnd;
-                    return currentDate.plusDays(1).atTime(workStart).plusMinutes(minutesToAdd);
+                    remainingMinutes -= minutesToEnd;
+                    return currentDate.plusDays(1).atTime(workStart).plusMinutes(remainingMinutes);
+                }
+            }
+        }
+        
+        return currentDate.atTime(currentTime);
+    }
+
+    private LocalDateTime subtractMinutesWithinWorkDay(LocalDateTime current, long minutesToSubtract,
+                                                         LocalTime workStart, LocalTime workEnd,
+                                                         LocalTime lunchStart, LocalTime lunchEnd) {
+        LocalTime currentTime = current.toLocalTime();
+        LocalDate currentDate = current.toLocalDate();
+        long remainingMinutes = minutesToSubtract;
+        
+        while (remainingMinutes > 0) {
+            if (currentTime.isAfter(lunchEnd)) {
+                long minutesFromLunchEnd = java.time.Duration.between(lunchEnd, currentTime).toMinutes();
+                if (remainingMinutes <= minutesFromLunchEnd) {
+                    currentTime = currentTime.minusMinutes(remainingMinutes);
+                    remainingMinutes = 0;
+                } else {
+                    remainingMinutes -= minutesFromLunchEnd;
+                    currentTime = lunchStart;
+                }
+            } else if (currentTime.isAfter(lunchStart)) {
+                currentTime = lunchStart;
+            } else {
+                long minutesFromWorkStart = java.time.Duration.between(workStart, currentTime).toMinutes();
+                if (remainingMinutes <= minutesFromWorkStart) {
+                    currentTime = currentTime.minusMinutes(remainingMinutes);
+                    remainingMinutes = 0;
+                } else {
+                    remainingMinutes -= minutesFromWorkStart;
+                    return currentDate.minusDays(1).atTime(workEnd).minusMinutes(remainingMinutes);
                 }
             }
         }
@@ -278,6 +430,10 @@ public class WorkCalendarService {
     }
 
     public long calculateWorkHoursBetween(LocalDateTime start, LocalDateTime end) {
+        return calculateWorkMinutesBetween(start, end) / 60;
+    }
+
+    public long calculateWorkMinutesBetween(LocalDateTime start, LocalDateTime end) {
         if (end.isBefore(start)) {
             return 0;
         }
@@ -328,7 +484,7 @@ public class WorkCalendarService {
             current = current.toLocalDate().plusDays(1).atTime(workStart);
         }
 
-        return totalWorkMinutes / 60;
+        return totalWorkMinutes;
     }
 
     private long calculateWorkMinutesInDay(LocalDateTime start, LocalDateTime end,
@@ -363,16 +519,28 @@ public class WorkCalendarService {
     }
 
     public LocalDateTime adjustToWorkDay(LocalDateTime dateTime) {
+        return adjustToWorkDay(dateTime, false);
+    }
+
+    public LocalDateTime adjustToWorkDay(LocalDateTime dateTime, boolean backward) {
         WorkCalendar calendar = getWorkCalendar(dateTime.toLocalDate());
         
         if (!calendar.getIsWorkDay()) {
-            LocalDate nextWorkDay = dateTime.toLocalDate();
+            LocalDate targetDate = dateTime.toLocalDate();
             do {
-                nextWorkDay = nextWorkDay.plusDays(1);
-            } while (!isWorkDay(nextWorkDay));
+                if (backward) {
+                    targetDate = targetDate.minusDays(1);
+                } else {
+                    targetDate = targetDate.plusDays(1);
+                }
+            } while (!isWorkDay(targetDate));
             
-            WorkCalendar nextCalendar = getWorkCalendar(nextWorkDay);
-            return nextWorkDay.atTime(nextCalendar.getWorkStartTime());
+            WorkCalendar targetCalendar = getWorkCalendar(targetDate);
+            if (backward) {
+                return targetDate.atTime(targetCalendar.getWorkEndTime());
+            } else {
+                return targetDate.atTime(targetCalendar.getWorkStartTime());
+            }
         }
 
         LocalTime time = dateTime.toLocalTime();
@@ -380,10 +548,39 @@ public class WorkCalendarService {
             return dateTime.toLocalDate().atTime(calendar.getWorkStartTime());
         }
         if (time.isAfter(calendar.getWorkEndTime())) {
-            return dateTime.toLocalDate().plusDays(1).atTime(calendar.getWorkStartTime());
+            if (backward) {
+                return dateTime.toLocalDate().atTime(calendar.getWorkEndTime());
+            } else {
+                return dateTime.toLocalDate().plusDays(1).atTime(calendar.getWorkStartTime());
+            }
         }
         
         return dateTime;
+    }
+
+    public int countWorkDaysBetween(LocalDate start, LocalDate end) {
+        if (end.isBefore(start)) {
+            return 0;
+        }
+        
+        int count = 0;
+        LocalDate current = start;
+        
+        while (!current.isAfter(end)) {
+            if (isWorkDay(current)) {
+                count++;
+            }
+            current = current.plusDays(1);
+        }
+        
+        return count;
+    }
+
+    public int countNaturalDaysBetween(LocalDate start, LocalDate end) {
+        if (end.isBefore(start)) {
+            return 0;
+        }
+        return (int) java.time.Duration.between(start.atStartOfDay(), end.atStartOfDay()).toDays() + 1;
     }
 
     @Transactional
@@ -404,5 +601,9 @@ public class WorkCalendarService {
 
     public List<WorkCalendar> getHolidaysBetween(LocalDate start, LocalDate end) {
         return workCalendarRepository.findByDateBetweenAndIsWorkDay(start, end, false);
+    }
+
+    public List<WorkCalendar> getWorkDaysBetween(LocalDate start, LocalDate end) {
+        return workCalendarRepository.findByDateBetweenAndIsWorkDay(start, end, true);
     }
 }
