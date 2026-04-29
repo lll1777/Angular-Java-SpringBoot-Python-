@@ -12,38 +12,40 @@ public class SlaConfig {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "category", length = 100)
+    @Column(nullable = false, length = 100)
     private String category;
 
-    @Column(name = "sub_category", length = 100)
+    @Column(length = 100)
     private String subCategory;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "department_id")
-    private Department department;
-
-    @Column(name = "processing_hours", nullable = false)
-    private Integer processingHours;
-
-    @Column(name = "use_work_days", nullable = false)
+    @Column(nullable = false)
     private Boolean useWorkDays = true;
 
-    @Column(name = "yellow_warning_ratio", nullable = false)
-    private Double yellowWarningRatio = 0.75;
+    @Column(name = "processing_hours", nullable = false)
+    private Integer processingHours = 72;
 
-    @Column(name = "red_warning_ratio", nullable = false)
-    private Double redWarningRatio = 0.9;
+    @Column(name = "claim_hours")
+    private Integer claimHours = 4;
 
-    @Column(name = "accept_timeout_hours")
-    private Integer acceptTimeoutHours = 4;
+    @Column(name = "yellow_warning_percent", nullable = false)
+    private Double yellowWarningPercent = 0.75;
 
-    @Column(name = "is_active", nullable = false)
+    @Column(name = "red_warning_percent", nullable = false)
+    private Double redWarningPercent = 0.90;
+
+    @Column(name = "is_urgent")
+    private Boolean isUrgent = false;
+
+    @Column(name = "urgent_multiplier")
+    private Double urgentMultiplier = 0.5;
+
+    @Column(name = "is_active")
     private Boolean isActive = true;
 
-    @Column(name = "priority_level")
-    private Integer priorityLevel = 1;
+    @Column(name = "priority")
+    private Integer priority = 1;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(length = 500)
     private String description;
 
     @Column(name = "created_at", updatable = false)

@@ -1,6 +1,7 @@
 package com.gov.serviceplatform.repository;
 
 import com.gov.serviceplatform.entity.WorkCalendar;
+import com.gov.serviceplatform.enums.HolidayType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,20 +16,23 @@ public interface WorkCalendarRepository extends JpaRepository<WorkCalendar, Long
     
     Optional<WorkCalendar> findByDate(LocalDate date);
     
+    List<WorkCalendar> findByYear(Integer year);
+    
+    List<WorkCalendar> findByYearAndMonth(Integer year, Integer month);
+    
     List<WorkCalendar> findByDateBetween(LocalDate startDate, LocalDate endDate);
     
-    @Query("SELECT w FROM WorkCalendar w WHERE w.date BETWEEN :startDate AND :endDate AND w.isWorkday = true AND w.isHoliday = false")
-    List<WorkCalendar> findWorkDaysBetween(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
+    @Query("SELECT wc FROM WorkCalendar wc WHERE wc.date BETWEEN :startDate AND :endDate AND wc.isWorkDay = :isWorkDay")
+    List<WorkCalendar> findByDateBetweenAndIsWorkDay(
+        @Param("startDate") LocalDate startDate,
+        @Param("endDate") LocalDate endDate,
+        @Param("isWorkDay") Boolean isWorkDay);
     
-    @Query("SELECT COUNT(w) FROM WorkCalendar w WHERE w.date BETWEEN :startDate AND :endDate AND w.isWorkday = true AND w.isHoliday = false")
+    @Query("SELECT COUNT(wc) FROM WorkCalendar wc WHERE wc.date BETWEEN :startDate AND :endDate AND wc.isWorkDay = true")
     long countWorkDaysBetween(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
     
-    @Query("SELECT w FROM WorkCalendar w WHERE w.isHoliday = true AND w.date BETWEEN :startDate AND :endDate")
-    List<WorkCalendar> findHolidaysBetween(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
+    @Query("SELECT wc FROM WorkCalendar wc WHERE wc.date = :date OR (wc.holidayType = :holidayType AND wc.isWorkDay = false)")
+    Optional<WorkCalendar> findByDateOrHolidayType(@Param("date") LocalDate date, @Param("holidayType") HolidayType holidayType);
     
-    @Query("SELECT CASE WHEN COUNT(w) > 0 THEN true ELSE false END FROM WorkCalendar w WHERE w.date = :date AND w.isWorkday = true AND w.isHoliday = false")
-    boolean isWorkDay(@Param("date") LocalDate date);
-    
-    @Query("SELECT CASE WHEN COUNT(w) > 0 THEN true ELSE false END FROM WorkCalendar w WHERE w.date = :date AND w.isHoliday = true")
-    boolean isHoliday(@Param("date") LocalDate date);
+    boolean existsByDate(LocalDate date);
 }

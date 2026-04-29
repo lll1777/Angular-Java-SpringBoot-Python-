@@ -2,9 +2,7 @@ package com.gov.serviceplatform.controller;
 
 import com.gov.serviceplatform.dto.TicketCreateDTO;
 import com.gov.serviceplatform.entity.Ticket;
-import com.gov.serviceplatform.entity.TicketCooperation;
 import com.gov.serviceplatform.entity.TicketFlow;
-import com.gov.serviceplatform.entity.TicketRoutingHistory;
 import com.gov.serviceplatform.enums.TicketStatus;
 import com.gov.serviceplatform.repository.TicketFlowRepository;
 import com.gov.serviceplatform.service.AuditService;
@@ -123,39 +121,6 @@ public class TicketController {
         return ResponseEntity.ok(ticket);
     }
 
-    @PostMapping("/{id}/return")
-    public ResponseEntity<Ticket> returnTicket(
-            @PathVariable Long id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : null;
-        Ticket ticket = ticketService.returnTicket(id, reason, null);
-        return ResponseEntity.ok(ticket);
-    }
-
-    @PostMapping("/{id}/escalate")
-    public ResponseEntity<Ticket> escalateTicket(
-            @PathVariable Long id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : null;
-        Ticket ticket = ticketService.escalateTicket(id, reason, null);
-        return ResponseEntity.ok(ticket);
-    }
-
-    @PostMapping("/{id}/cooperate")
-    public ResponseEntity<TicketCooperation> createCooperation(
-            @PathVariable Long id,
-            @RequestBody Map<String, Object> body) {
-        Long cooperationDeptId = body.get("cooperationDeptId") != null 
-            ? ((Number) body.get("cooperationDeptId")).longValue() : null;
-        String requirement = (String) body.get("requirement");
-        Integer processingHours = body.get("processingHours") != null 
-            ? ((Number) body.get("processingHours")).intValue() : 24;
-        
-        TicketCooperation cooperation = ticketService.createCooperation(
-            id, cooperationDeptId, requirement, processingHours, null);
-        return ResponseEntity.ok(cooperation);
-    }
-
     @PostMapping("/{id}/complete")
     public ResponseEntity<Ticket> completeTicket(
             @PathVariable Long id,
@@ -176,31 +141,10 @@ public class TicketController {
         return ResponseEntity.ok(ticket);
     }
 
-    @PostMapping("/{id}/cancel")
-    public ResponseEntity<Ticket> cancelTicket(
-            @PathVariable Long id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : null;
-        Ticket ticket = ticketService.cancelTicket(id, reason, null);
-        return ResponseEntity.ok(ticket);
-    }
-
     @GetMapping("/{id}/flows")
     public ResponseEntity<List<TicketFlow>> getTicketFlows(@PathVariable Long id) {
         List<TicketFlow> flows = ticketFlowRepository.findByTicketIdOrderByCreatedAtAsc(id);
         return ResponseEntity.ok(flows);
-    }
-
-    @GetMapping("/{id}/routing-history")
-    public ResponseEntity<List<TicketRoutingHistory>> getTicketRoutingHistory(@PathVariable Long id) {
-        List<TicketRoutingHistory> history = ticketService.getTicketRoutingHistory(id);
-        return ResponseEntity.ok(history);
-    }
-
-    @GetMapping("/{id}/cooperations")
-    public ResponseEntity<List<TicketCooperation>> getTicketCooperations(@PathVariable Long id) {
-        List<TicketCooperation> cooperations = ticketService.getTicketCooperations(id);
-        return ResponseEntity.ok(cooperations);
     }
 
     @GetMapping("/{id}/similar")
@@ -232,5 +176,88 @@ public class TicketController {
     public ResponseEntity<List<?>> getAuditLogs(@PathVariable Long id) {
         var logs = auditService.getAllLogsByTarget("Ticket", id);
         return ResponseEntity.ok(logs);
+    }
+
+    @PostMapping("/{id}/return")
+    public ResponseEntity<Ticket> returnTicket(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        if (reason == null) {
+            reason = "未指定原因";
+        }
+        Ticket ticket = ticketService.returnTicket(id, reason, null);
+        return ResponseEntity.ok(ticket);
+    }
+
+    @PostMapping("/{id}/return-and-reassign")
+    public ResponseEntity<Ticket> returnAndReassign(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        if (reason == null) {
+            reason = "未指定原因";
+        }
+        Ticket ticket = ticketService.handleReturnAndReassign(id, reason, null);
+        return ResponseEntity.ok(ticket);
+    }
+
+    @PostMapping("/{id}/escalate")
+    public ResponseEntity<Ticket> escalateTicket(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : "系统自动升级";
+        Ticket ticket = ticketService.escalateTicket(id, reason, null);
+        return ResponseEntity.ok(ticket);
+    }
+
+    @PostMapping("/{id}/cooperate")
+    public ResponseEntity<Ticket> cooperate(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        List<Number> deptIds = (List<Number>) body.get("coDepartmentIds");
+        Long[] coDepartmentIds = deptIds != null 
+            ? deptIds.stream().map(Number::longValue).toArray(Long[]::new) 
+            : new Long[0];
+        String requirement = (String) body.get("requirement");
+        
+        Ticket ticket = ticketService.cooperate(id, coDepartmentIds, requirement, null);
+        return ResponseEntity.ok(ticket);
+    }
+
+    @PostMapping("/cooperation/{cooperationId}/accept")
+    public ResponseEntity<?> acceptCooperation(@PathVariable Long cooperationId) {
+        var record = ticketService.acceptCooperation(cooperationId, null);
+        return ResponseEntity.ok(record);
+    }
+
+    @PostMapping("/cooperation/{cooperationId}/complete")
+    public ResponseEntity<?> completeCooperation(
+            @PathVariable Long cooperationId,
+            @RequestBody Map<String, String> body) {
+        String response = body != null ? body.get("response") : null;
+        var record = ticketService.completeCooperation(cooperationId, response, null);
+        return ResponseEntity.ok(record);
+    }
+
+    @GetMapping("/{id}/cooperations")
+    public ResponseEntity<List<?>> getCooperations(@PathVariable Long id) {
+        var records = ticketService.getCooperationRecords(id);
+        return ResponseEntity.ok(records);
+    }
+
+    @PostMapping("/{id}/auto-assign")
+    public ResponseEntity<Ticket> autoAssign(@PathVariable Long id) {
+        Ticket ticket = ticketService.autoAssignTicket(id);
+        return ResponseEntity.ok(ticket);
+    }
+
+    @PostMapping("/{id}/recalculate-sla")
+    public ResponseEntity<Map<String, String>> recalculateSla(@PathVariable Long id) {
+        ticketService.recalculateSla(id);
+        Map<String, String> result = new HashMap<>();
+        result.put("message", "SLA时间已重新计算");
+        return ResponseEntity.ok(result);
     }
 }
