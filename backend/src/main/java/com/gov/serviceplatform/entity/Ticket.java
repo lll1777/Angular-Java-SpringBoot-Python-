@@ -1,6 +1,7 @@
 package com.gov.serviceplatform.entity;
 
 import com.gov.serviceplatform.enums.AlertLevel;
+import com.gov.serviceplatform.enums.SlaTimeType;
 import com.gov.serviceplatform.enums.TicketStatus;
 import jakarta.persistence.*;
 import lombok.Data;
@@ -61,11 +62,24 @@ public class Ticket {
     @Column(length = 20)
     private AlertLevel alertLevel = AlertLevel.NORMAL;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sla_time_type", length = 20)
+    private SlaTimeType slaTimeType;
+
+    @Column(name = "sla_time_type_description")
+    private String slaTimeTypeDescription;
+
+    @Column(name = "sla_processing_value")
+    private Integer slaProcessingValue;
+
     @Column(name = "processing_hours")
     private Integer processingHours;
 
     @Column(name = "remaining_hours")
     private Integer remainingHours;
+
+    @Column(name = "remaining_days")
+    private Integer remainingDays;
 
     @Column(name = "due_time")
     private LocalDateTime dueTime;
@@ -75,6 +89,9 @@ public class Ticket {
 
     @Column(name = "red_warning_time")
     private LocalDateTime redWarningTime;
+
+    @Column(name = "claim_due_time")
+    private LocalDateTime claimDueTime;
 
     @Column(columnDefinition = "TEXT")
     private String aiRecommendation;
@@ -97,6 +114,15 @@ public class Ticket {
     @Column(columnDefinition = "TEXT")
     private String attachments;
 
+    @Column(name = "transfer_count")
+    private Integer transferCount = 0;
+
+    @Column(name = "return_count")
+    private Integer returnCount = 0;
+
+    @Column(name = "escalation_count")
+    private Integer escalationCount = 0;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -111,6 +137,15 @@ public class Ticket {
 
     @Column(name = "closed_at")
     private LocalDateTime closedAt;
+
+    @Column(name = "first_assigned_at")
+    private LocalDateTime firstAssignedAt;
+
+    @Column(name = "last_transferred_at")
+    private LocalDateTime lastTransferredAt;
+
+    @Column(name = "sla_recalculated_at")
+    private LocalDateTime slaRecalculatedAt;
 
     @PrePersist
     protected void onCreate() {
@@ -130,5 +165,17 @@ public class Ticket {
         String dateStr = java.time.LocalDate.now().toString().replace("-", "");
         String random = String.format("%06d", (int)(Math.random() * 1000000));
         return "GZ" + dateStr + random;
+    }
+
+    public String getSlaDisplay() {
+        if (slaTimeType == null) {
+            return "未配置";
+        }
+        String valueStr = slaProcessingValue != null ? String.valueOf(slaProcessingValue) : "0";
+        return valueStr + "个" + slaTimeType.getDescription();
+    }
+
+    public boolean isSlaWorkBased() {
+        return slaTimeType != null && slaTimeType.isWorkBased();
     }
 }
