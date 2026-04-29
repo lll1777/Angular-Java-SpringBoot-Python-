@@ -4,9 +4,12 @@ import com.gov.serviceplatform.dto.TicketCreateDTO;
 import com.gov.serviceplatform.dto.TicketQueryDTO;
 import com.gov.serviceplatform.entity.Department;
 import com.gov.serviceplatform.entity.Ticket;
+import com.gov.serviceplatform.entity.TicketCooperation;
+import com.gov.serviceplatform.entity.TicketRoutingHistory;
 import com.gov.serviceplatform.entity.User;
 import com.gov.serviceplatform.enums.TicketStatus;
 import com.gov.serviceplatform.repository.DepartmentRepository;
+import com.gov.serviceplatform.repository.TicketFlowRepository;
 import com.gov.serviceplatform.repository.TicketRepository;
 import com.gov.serviceplatform.service.ai.AIService;
 import com.gov.serviceplatform.state.TicketStateMachine;
@@ -27,6 +30,10 @@ public class TicketService {
     private final TicketStateMachine stateMachine;
     private final AIService aiService;
     private final AuditService auditService;
+    private final TicketRoutingService routingService;
+    private final TicketCooperationService cooperationService;
+    private final WorkCalendarService workCalendarService;
+    private final SlaService slaService;
 
     @Transactional
     public Ticket createTicket(TicketCreateDTO dto, User citizen) {
@@ -62,27 +69,7 @@ public class TicketService {
 
     @Transactional
     public void processTicketWithAI(Ticket ticket) {
-        var aiResult = aiService.classifyAndRecommend(ticket.getTitle() + " " + ticket.getContent());
-        
-        ticket.setAiRecommendation(aiResult.getRecommendedDepartment());
-        ticket.setAiConfidence(aiResult.getConfidence());
-        
-        if (ticket.getCurrentDepartment() == null && aiResult.getRecommendedDepartmentId() != null) {
-            Department recommendedDept = departmentRepository.findById(aiResult.getRecommendedDepartmentId())
-                .orElse(null);
-            if (recommendedDept != null) {
-                ticket.setCurrentDepartment(recommendedDept);
-            }
-        }
-
-        if (aiResult.getCategory() != null) {
-            ticket.setCategory(aiResult.getCategory());
-        }
-        if (aiResult.getSubCategory() != null) {
-            ticket.setSubCategory(aiResult.getSubCategory());
-        }
-
-        ticketRepository.save(ticket);
+        routingService.aiAssignTicket(ticket, null);
     }
 
     @Transactional
@@ -145,6 +132,43 @@ public class TicketService {
     }
 
     @Transactional
+    public Ticket returnTicket(Long ticketId, String reason, User operator) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+            .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
+
+        Ticket returnedTicket = stateMachine.returnToPrevious(ticket, operator, reason);
+
+        return returnedTicket;
+    }
+
+    @Transactional
+    public Ticket escalateTicket(Long ticketId, String reason, User operator) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+            .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
+
+        return routingService.escalateTicket(ticket, operator, reason);
+    }
+
+    @Transactional
+    public TicketCooperation createCooperation(Long ticketId, Long cooperationDeptId, 
+                                                String requirement, Integer processingHours, User operator) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+            .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
+
+        return cooperationService.createCooperation(ticket, operator, cooperationDeptId, requirement, processingHours);
+    }
+
+    @Transactional
+    public TicketCooperation acceptCooperation(Long cooperationId, User operator) {
+        return cooperationService.acceptCooperation(cooperationId, operator);
+    }
+
+    @Transactional
+    public TicketCooperation completeCooperation(Long cooperationId, String response, User operator) {
+        return cooperationService.completeCooperation(cooperationId, response, operator);
+    }
+
+    @Transactional
     public Ticket completeTicket(Long ticketId, String completionContent, User operator) {
         Ticket ticket = ticketRepository.findById(ticketId)
             .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
@@ -168,6 +192,19 @@ public class TicketService {
             "关闭工单，满意度：" + satisfaction, null, null, operator);
 
         return closedTicket;
+    }
+
+    @Transactional
+    public Ticket cancelTicket(Long ticketId, String reason, User operator) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+            .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
+
+        Ticket cancelledTicket = stateMachine.cancel(ticket, operator, reason);
+
+        auditService.logOperation("CANCEL", "Ticket", ticketId, 
+            "取消工单，原因：" + reason, null, null, operator);
+
+        return cancelledTicket;
     }
 
     public Ticket getTicketById(Long id) {
@@ -197,6 +234,14 @@ public class TicketService {
 
     public Page<Ticket> getTicketsByStatus(TicketStatus status, Pageable pageable) {
         return ticketRepository.findByStatus(status, pageable);
+    }
+
+    public List<TicketRoutingHistory> getTicketRoutingHistory(Long ticketId) {
+        return routingService.getRoutingHistory(ticketId);
+    }
+
+    public List<TicketCooperation> getTicketCooperations(Long ticketId) {
+        return cooperationService.getCooperationsForTicket(ticketId);
     }
 
     public Page<Ticket> queryTickets(TicketQueryDTO query, Pageable pageable) {

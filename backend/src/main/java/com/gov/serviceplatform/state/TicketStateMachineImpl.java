@@ -3,13 +3,19 @@ package com.gov.serviceplatform.state;
 import com.gov.serviceplatform.entity.Department;
 import com.gov.serviceplatform.entity.Ticket;
 import com.gov.serviceplatform.entity.TicketFlow;
+import com.gov.serviceplatform.entity.TicketRoutingHistory;
 import com.gov.serviceplatform.entity.User;
 import com.gov.serviceplatform.enums.AlertLevel;
 import com.gov.serviceplatform.enums.TicketStatus;
 import com.gov.serviceplatform.repository.DepartmentRepository;
 import com.gov.serviceplatform.repository.TicketFlowRepository;
 import com.gov.serviceplatform.repository.TicketRepository;
+import com.gov.serviceplatform.service.AuditService;
+import com.gov.serviceplatform.service.SlaService;
+import com.gov.serviceplatform.service.TicketCooperationService;
+import com.gov.serviceplatform.service.TicketRoutingService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class TicketStateMachineImpl implements TicketStateMachine {
@@ -26,6 +33,10 @@ public class TicketStateMachineImpl implements TicketStateMachine {
     private final TicketRepository ticketRepository;
     private final TicketFlowRepository ticketFlowRepository;
     private final DepartmentRepository departmentRepository;
+    private final SlaService slaService;
+    private final TicketRoutingService routingService;
+    private final TicketCooperationService cooperationService;
+    private final AuditService auditService;
 
     private static final Map<TicketStatus, Set<TicketStatus>> ALLOWED_TRANSITIONS = new HashMap<>();
 
@@ -39,7 +50,7 @@ public class TicketStateMachineImpl implements TicketStateMachine {
             TicketStatus.COMPLETED
         ));
         ALLOWED_TRANSITIONS.put(TicketStatus.TRANSFERRED, Set.of(TicketStatus.ACCEPTED, TicketStatus.RETURNED));
-        ALLOWED_TRANSITIONS.put(TicketStatus.COOPERATING, Set.of(TicketStatus.IN_PROGRESS, TicketStatus.PENDING_REVIEW));
+        ALLOWED_TRANSITIONS.put(TicketStatus.COOPERATING, Set.of(TicketStatus.IN_PROGRESS, TicketStatus.PENDING_REVIEW, TicketStatus.COMPLETED));
         ALLOWED_TRANSITIONS.put(TicketStatus.RETURNED, Set.of(TicketStatus.ACCEPTED, TicketStatus.TRANSFERRED, TicketStatus.CANCELLED));
         ALLOWED_TRANSITIONS.put(TicketStatus.PENDING_REVIEW, Set.of(TicketStatus.COMPLETED, TicketStatus.IN_PROGRESS));
         ALLOWED_TRANSITIONS.put(TicketStatus.COMPLETED, Set.of(TicketStatus.VISITING, TicketStatus.CLOSED));
@@ -75,6 +86,16 @@ public class TicketStateMachineImpl implements TicketStateMachine {
 
         createTicketFlow(savedTicket, fromStatus, targetStatus, operator, fromDepartment, remark);
 
+        slaService.updateRemainingHours(savedTicket);
+
+        auditService.logOperation("TRANSITION_" + targetStatus.name(), "Ticket", 
+            ticket.getId(), 
+            String.format("状态转换: %s -> %s, 备注: %s", 
+                fromStatus.getDescription(), 
+                targetStatus.getDescription(),
+                remark != null ? remark : "无"),
+            fromStatus.name(), targetStatus.name(), operator);
+
         return savedTicket;
     }
 
@@ -88,18 +109,13 @@ public class TicketStateMachineImpl implements TicketStateMachine {
             throw new IllegalArgumentException("请先指定承办部门");
         }
 
-        if (ticket.getProcessingHours() == null) {
-            ticket.setProcessingHours(ticket.getCurrentDepartment().getDefaultProcessingHours());
-        }
-        
-        LocalDateTime now = LocalDateTime.now();
-        ticket.setDueTime(now.plusHours(ticket.getProcessingHours()));
-        ticket.setYellowWarningTime(now.plusHours(ticket.getProcessingHours() * 0.75));
-        ticket.setRedWarningTime(now.plusHours(ticket.getProcessingHours() * 0.9));
-        ticket.setRemainingHours(ticket.getProcessingHours());
-        ticket.setAlertLevel(AlertLevel.NORMAL);
+        slaService.calculateAndSetSla(ticket);
 
-        return transition(ticket, TicketStatus.ASSIGNED, operator, "系统自动派单");
+        routingService.recordRouting(ticket, null, ticket.getCurrentDepartment(), 
+            operator, TicketRoutingHistory.RoutingType.INITIAL_ASSIGN,
+            "初始派单到部门: " + ticket.getCurrentDepartment().getName());
+
+        return transition(ticket, TicketStatus.ASSIGNED, operator, "派单到部门: " + ticket.getCurrentDepartment().getName());
     }
 
     @Override
@@ -141,6 +157,11 @@ public class TicketStateMachineImpl implements TicketStateMachine {
         ticket.setCurrentDepartment(targetDept);
         ticket.setHandler(null);
 
+        routingService.recordRouting(ticket, fromDept, targetDept, 
+            operator, TicketRoutingHistory.RoutingType.TRANSFER, reason);
+
+        slaService.calculateAndSetSla(ticket);
+
         TicketFlow flow = createTicketFlow(ticket, ticket.getStatus(), TicketStatus.TRANSFERRED, 
                                             operator, fromDept, reason);
         flow.setFlowType("转办");
@@ -150,18 +171,35 @@ public class TicketStateMachineImpl implements TicketStateMachine {
         ticket.setStatus(TicketStatus.TRANSFERRED);
         ticket.setUpdatedAt(LocalDateTime.now());
         
+        auditService.logOperation("TRANSFER", "Ticket", ticket.getId(),
+            String.format("转办: 从 %s 到 %s, 原因: %s", 
+                fromDept.getName(), targetDept.getName(), reason),
+            null, null, operator);
+        
         return ticketRepository.save(ticket);
     }
 
     @Override
     @Transactional
     public Ticket cooperate(Ticket ticket, User operator, Long[] coDepartmentIds, String requirement) {
-        if (ticket.getStatus() != TicketStatus.IN_PROGRESS) {
-            throw new IllegalArgumentException("只有办理中的工单才能发起协办");
+        if (ticket.getStatus() != TicketStatus.IN_PROGRESS && ticket.getStatus() != TicketStatus.COOPERATING) {
+            throw new IllegalArgumentException("只有办理中或协办中的工单才能发起协办");
         }
 
-        return transition(ticket, TicketStatus.COOPERATING, operator, 
-            "发起协办，需求：" + requirement);
+        if (coDepartmentIds == null || coDepartmentIds.length == 0) {
+            throw new IllegalArgumentException("请选择协办部门");
+        }
+
+        for (Long deptId : coDepartmentIds) {
+            cooperationService.createCooperation(ticket, operator, deptId, requirement, 24);
+        }
+
+        if (ticket.getStatus() != TicketStatus.COOPERATING) {
+            ticket.setStatus(TicketStatus.COOPERATING);
+            ticketRepository.save(ticket);
+        }
+
+        return ticket;
     }
 
     @Override
@@ -172,14 +210,31 @@ public class TicketStateMachineImpl implements TicketStateMachine {
             throw new IllegalArgumentException("当前状态不允许退回");
         }
 
-        return transition(ticket, TicketStatus.RETURNED, operator, "退回原因：" + reason);
+        TicketFlow flow = createTicketFlow(ticket, ticket.getStatus(), TicketStatus.RETURNED, 
+                                            operator, ticket.getCurrentDepartment(), "退回原因：" + reason);
+        flow.setFlowType("退回");
+        ticketFlowRepository.save(flow);
+
+        auditService.logOperation("RETURN", "Ticket", ticket.getId(),
+            "退回原因: " + reason, null, null, operator);
+
+        Ticket returnedTicket = routingService.handleReturnedTicket(ticket, operator, reason);
+
+        log.info("工单 {} 已退回并自动转派到上一级部门", ticket.getTicketNumber());
+
+        return returnedTicket;
     }
 
     @Override
     @Transactional
     public Ticket submitForReview(Ticket ticket, User operator, String result) {
-        if (ticket.getStatus() != TicketStatus.IN_PROGRESS && ticket.getStatus() != TicketStatus.COOPERATING) {
+        if (ticket.getStatus() != TicketStatus.IN_PROGRESS && 
+            ticket.getStatus() != TicketStatus.COOPERATING) {
             throw new IllegalArgumentException("只有办理中或协办中的工单才能提交审核");
+        }
+
+        if (cooperationService.hasActiveCooperations(ticket)) {
+            throw new IllegalArgumentException("存在未完成的协办，无法提交审核");
         }
 
         return transition(ticket, TicketStatus.PENDING_REVIEW, operator, "办理结果：" + result);
@@ -188,11 +243,21 @@ public class TicketStateMachineImpl implements TicketStateMachine {
     @Override
     @Transactional
     public Ticket complete(Ticket ticket, User operator, String completionContent) {
-        if (ticket.getStatus() != TicketStatus.PENDING_REVIEW && ticket.getStatus() != TicketStatus.IN_PROGRESS) {
-            throw new IllegalArgumentException("只有待审核或办理中的工单才能办结");
+        if (ticket.getStatus() != TicketStatus.PENDING_REVIEW && 
+            ticket.getStatus() != TicketStatus.IN_PROGRESS &&
+            ticket.getStatus() != TicketStatus.COOPERATING) {
+            throw new IllegalArgumentException("只有待审核、办理中或协办中的工单才能办结");
+        }
+
+        if (cooperationService.hasActiveCooperations(ticket)) {
+            throw new IllegalArgumentException("存在未完成的协办，无法办结");
         }
 
         ticket.setCompletedAt(LocalDateTime.now());
+        
+        AlertLevel currentAlert = slaService.calculateCurrentAlertLevel(ticket);
+        ticket.setAlertLevel(currentAlert);
+        
         return transition(ticket, TicketStatus.COMPLETED, operator, completionContent);
     }
 
@@ -237,6 +302,11 @@ public class TicketStateMachineImpl implements TicketStateMachine {
         }
 
         return transition(ticket, TicketStatus.CANCELLED, operator, "取消原因：" + reason);
+    }
+
+    @Transactional
+    public Ticket escalate(Ticket ticket, User operator, String reason) {
+        return routingService.escalateTicket(ticket, operator, reason);
     }
 
     private TicketFlow createTicketFlow(Ticket ticket, TicketStatus fromStatus, TicketStatus toStatus,

@@ -21,6 +21,8 @@ public class AlertService {
 
     private final TicketRepository ticketRepository;
     private final AuditService auditService;
+    private final SlaService slaService;
+    private final TicketRoutingService routingService;
 
     private static final List<TicketStatus> COMPLETED_STATUSES = Arrays.asList(
         TicketStatus.COMPLETED, TicketStatus.CLOSED, TicketStatus.CANCELLED
@@ -39,6 +41,8 @@ public class AlertService {
         
         updateOverdueStatus(now);
         
+        checkUnacceptedTickets();
+        
         log.info("时效预警检查任务完成");
     }
 
@@ -55,7 +59,7 @@ public class AlertService {
                 log.warn("工单 {} 触发黄牌预警", ticket.getTicketNumber());
                 
                 auditService.logOperation("YELLOW_WARNING", "Ticket", ticket.getId(),
-                    "时效黄牌警告", null, AlertLevel.YELLOW_WARNING.name(), null);
+                    "时效黄牌警告", AlertLevel.NORMAL.name(), AlertLevel.YELLOW_WARNING.name(), null);
             }
         }
     }
@@ -75,7 +79,7 @@ public class AlertService {
                 log.warn("工单 {} 触发红牌预警", ticket.getTicketNumber());
                 
                 auditService.logOperation("RED_WARNING", "Ticket", ticket.getId(),
-                    "时效红牌警告", null, AlertLevel.RED_WARNING.name(), null);
+                    "时效红牌警告", AlertLevel.YELLOW_WARNING.name(), AlertLevel.RED_WARNING.name(), null);
             }
         }
     }
@@ -92,26 +96,19 @@ public class AlertService {
                 log.warn("工单 {} 已逾期", ticket.getTicketNumber());
                 
                 auditService.logOperation("OVERDUE", "Ticket", ticket.getId(),
-                    "工单逾期", null, AlertLevel.OVERDUE.name(), null);
+                    "工单逾期", ticket.getAlertLevel().name(), AlertLevel.OVERDUE.name(), null);
             }
         }
     }
 
+    private void checkUnacceptedTickets() {
+        log.info("开始检查超时未认领工单...");
+        routingService.checkAndAutoReassignAllUnaccepted();
+    }
+
     @Transactional
     public void updateRemainingHours(Ticket ticket) {
-        if (ticket.getDueTime() == null || ticket.getCreatedAt() == null) {
-            return;
-        }
-        
-        LocalDateTime now = LocalDateTime.now();
-        if (now.isAfter(ticket.getDueTime())) {
-            ticket.setRemainingHours(0);
-        } else {
-            long hours = java.time.Duration.between(now, ticket.getDueTime()).toHours();
-            ticket.setRemainingHours((int) hours);
-        }
-        
-        ticketRepository.save(ticket);
+        slaService.updateRemainingHours(ticket);
     }
 
     public List<Ticket> getHighAlertTickets() {
@@ -122,5 +119,9 @@ public class AlertService {
 
     public long countAlertsByLevel(Long departmentId, AlertLevel level) {
         return ticketRepository.countByDepartmentAndAlertLevel(departmentId, level);
+    }
+
+    public AlertLevel calculateCurrentAlertLevel(Ticket ticket) {
+        return slaService.calculateCurrentAlertLevel(ticket);
     }
 }
